@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "OpenOrbis Build Task",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "cmd.exe",
+            "args": [
+                "/c",
+                "oobuild.py"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

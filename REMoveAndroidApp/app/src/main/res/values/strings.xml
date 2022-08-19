@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">REMove</string>
+    <string name="app_ready">onCreate, ready!</string>
+
+    <string name="err_title">Sorry</string>
+    <string name="err_message">An error had occurred: %1$s</string>
+
+    <string name="status_fmt">Welcome to REMove by Nik :)\nConnected to: %1$s\nLogged on as: %2$s\nThe background will paint the same color as the PS Move Lightsphere.\nThere may be a noticeable delay between button presses.\nWork In Progress!</string>
+
+    <string name="user_picker_title">Pick a user</string>
+    <string name="user_picker_nobody">Cancel</string>
+
+    <string name="ui_server">CONNECT</string>
+    <string name="ui_server_stop">DISCONNECT</string>
+
+    <string name="ui_toast_starting">Starting… (%1$s)</string>
+    <string name="ui_toast_stopping">Stopping…</string>
+    <string name="ui_toast_stop_server">Please stop the client first.</string>
+
+    <string name="ui_cross" translatable="false">✖</string>
+    <string name="ui_circle" translatable="false">●</string>
+    <string name="ui_triangle" translatable="false">▲</string>
+    <string name="ui_square" translatable="false">■</string>
+    <string name="ui_start" translatable="false">S\nT\nA\nR\nT</string>
+    <string name="ui_select" translatable="false">S\nE\nL\nE\nC\nT</string>
+    <string name="ui_move" translatable="false">(MOVE)</string>
+    <string name="ui_t" translatable="false">T</string>
+
+    <!-- Preference Titles -->
+    <string name="ui_settings_header">Settings</string>
+    <string name="ui_settings_hostname_header">Console IP or Hostname</string>
+    <string name="ui_settings_port_header">Console Network Port</string>
+</resources>

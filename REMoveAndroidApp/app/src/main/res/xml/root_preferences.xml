@@ -1,0 +1,22 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory app:title="@string/ui_settings_header">
+
+        <EditTextPreference
+            app:defaultValue="192.168.1.222"
+            app:key="settings_hostname"
+            app:title="@string/ui_settings_hostname_header"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="19794"
+            app:key="settings_port"
+            android:inputType="numberDecimal"
+            android:digits="0123456789"
+            app:title="@string/ui_settings_port_header"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>
