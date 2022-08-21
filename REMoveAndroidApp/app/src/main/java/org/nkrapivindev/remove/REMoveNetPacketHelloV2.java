@@ -4,15 +4,15 @@ package org.nkrapivindev.remove;
 import java.util.ArrayList;
 
 
-public class REMoveNetPacketHelloV1 implements IREMoveNetPacket {
+public class REMoveNetPacketHelloV2 implements IREMoveNetPacket {
     public static final int EXPECTED_SIZEOF = 92;
     public static final int EXPECTED_SIZEOF_USER_STRING = 17;
-    public static final int EXPECTED_PROTOCOL = 1;
+    public static final int EXPECTED_PROTOCOL = 2;
 
     private ArrayList<REMoveUser> users;
 
     @Override
-    public void fromStream(REMoveStream s) throws REMoveException { ;
+    public void fromStream(REMoveStream s) throws REMoveException {
         int sizeThis = s.readInt32();
         if (sizeThis != EXPECTED_SIZEOF) {
             throw new REMoveSizeOfException(EXPECTED_SIZEOF, sizeThis);
@@ -33,8 +33,9 @@ public class REMoveNetPacketHelloV1 implements IREMoveNetPacket {
         String username3 = s.readFixedCString(EXPECTED_SIZEOF_USER_STRING);
         String username4 = s.readFixedCString(EXPECTED_SIZEOF_USER_STRING);
 
-        users = new ArrayList<REMoveUser>();
+        users = new ArrayList<>();
 
+        // not sure why it's 0 sometimes, this should be -1, but meh, who cares by now...
         if (user1 != -1 && user1 != 0) {
             users.add(new REMoveUser(user1, username1));
         }

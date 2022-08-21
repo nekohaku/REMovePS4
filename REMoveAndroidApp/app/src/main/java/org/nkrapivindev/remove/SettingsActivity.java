@@ -1,9 +1,11 @@
 package org.nkrapivindev.remove;
 
 import android.os.Bundle;
+import android.text.InputType;
 
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.preference.EditTextPreference;
 import androidx.preference.PreferenceFragmentCompat;
 
 public class SettingsActivity extends AppCompatActivity {
@@ -34,6 +36,33 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
+            // *try* to fix the input type, don't care if we failed.
+            try {
+                EditTextPreference settings_port =
+                        findPreference("settings_port");
+                if (settings_port != null) {
+                    settings_port.setOnBindEditTextListener(
+                        (editText) -> editText.setInputType(
+                            InputType.TYPE_CLASS_NUMBER |
+                            InputType.TYPE_NUMBER_VARIATION_NORMAL
+                        )
+                    );
+                }
+
+                EditTextPreference settings_filter =
+                        findPreference("settings_filter");
+                if (settings_filter != null) {
+                    settings_filter.setOnBindEditTextListener(
+                        (editText)-> editText.setInputType(
+                            InputType.TYPE_CLASS_NUMBER |
+                            InputType.TYPE_NUMBER_FLAG_DECIMAL
+                        )
+                    );
+                }
+            }
+            catch (Exception ignore) {
+                // ...
+            }
         }
     }
 }

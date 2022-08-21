@@ -30,4 +30,5 @@
     <string name="ui_settings_header">Settings</string>
     <string name="ui_settings_hostname_header">Console IP or Hostname</string>
     <string name="ui_settings_port_header">Console Network Port</string>
+    <string name="ui_settings_apply_filter">Accelerometer filter factor</string>
 </resources>

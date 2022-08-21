@@ -9,12 +9,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
     public static final int DEFAULT_PORT = 19794;
+    public static final int CONTEXT_VERSION = REMoveNetPacketHelloV2.EXPECTED_PROTOCOL;
 
     private static final int AWAITING_PICKER = -123;
 
-    private String targetHost;
-    private int targetPort;
-    private Thread targetThread;
+    private String targetHost = "<unset ip or hostname>";
+    private int targetPort = DEFAULT_PORT;
+    private Thread targetThread = null;
     private final IREMoveApplication app;
     private final IREMoveLogger logger;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -43,15 +44,14 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
             REMoveStream buffstream = new REMoveStream(buff);
             REMoveUser user;
             ArrayList<REMoveUser> users;
-            REMoveNetPacketToClientV1 toUs = new REMoveNetPacketToClientV1();
-            REMoveNetPacketFromClientV1 send = new REMoveNetPacketFromClientV1();
+            REMoveNetPacketToClientV2 toUs = new REMoveNetPacketToClientV2();
+            REMoveNetPacketFromClientV2 send = new REMoveNetPacketFromClientV2();
             InputStream sckIn = null;
             OutputStream sckOut = null;
-            REMoveNetPacketHelloV1 hello = new REMoveNetPacketHelloV1();
+            REMoveNetPacketHelloV2 hello = new REMoveNetPacketHelloV2();
             int got;
             REMoveApplicationData appData;
-            long startTime;
-
+            //long startTime;
 
             while (running.get()) {
                 // initialize the socket:
@@ -66,9 +66,9 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                     // wait for the Hello packet
                     log("Waiting for data");
                     got = sckIn.read(buff);
-                    if (got != REMoveNetPacketHelloV1.EXPECTED_SIZEOF) {
+                    if (got != REMoveNetPacketHelloV2.EXPECTED_SIZEOF) {
                         throw new REMoveSizeOfException(
-                            REMoveNetPacketHelloV1.EXPECTED_SIZEOF,
+                            REMoveNetPacketHelloV2.EXPECTED_SIZEOF,
                             got
                         );
                     }
@@ -113,7 +113,7 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                 }
 
                 // main loop...
-                startTime = System.nanoTime();
+                //startTime = System.nanoTime();
                 if (app != null) {
                     appData = app.onProvideData();
                     if (appData != null) {
@@ -134,14 +134,14 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                 sckOut.write(
                     buff,
                     0,
-                    REMoveNetPacketFromClientV1.EXPECTED_SIZEOF
+                    REMoveNetPacketFromClientV2.EXPECTED_SIZEOF
                 );
 
                 // obtain any update frames from the server:
                 got = sckIn.read(buff);
-                if (got != REMoveNetPacketToClientV1.EXPECTED_SIZEOF) {
+                if (got != REMoveNetPacketToClientV2.EXPECTED_SIZEOF) {
                     throw new REMoveSizeOfException(
-                        REMoveNetPacketToClientV1.EXPECTED_SIZEOF,
+                        REMoveNetPacketToClientV2.EXPECTED_SIZEOF,
                         got
                     );
                 }
@@ -149,26 +149,26 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                 toUs.fromStream(buffstream);
 
                 if (app != null) {
-                    if ((
-                            toUs.updateFlags
-                            & REMoveNetPacketToClientV1.UPDATE_FLAG_SET_LIGHTSPHERE_COLOR) != 0) {
+                    if ((toUs.updateFlags
+                        & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_LIGHTSPHERE_COLOR) != 0) {
                         // we have color update data, send that
                         app.onColorUpdate(toUs.red, toUs.green, toUs.blue);
                     }
 
-                    if ((
-                            toUs.updateFlags
-                            & REMoveNetPacketToClientV1.UPDATE_FLAG_SET_VIBRATION) != 0) {
+                    if ((toUs.updateFlags
+                        & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_VIBRATION) != 0) {
                         // we have vibration data, send that
                         app.onMotorUpdate(toUs.motorValue);
                     }
                 }
 
+                /*
                 long estimatedTime = System.nanoTime() - startTime;
 
-                if ((System.currentTimeMillis() % 5000) < 10) {
+                if ((System.currentTimeMillis() % 10000) < 10) {
                     log("Estimated time = " + (((double) estimatedTime) / 1000000) + "ms");
                 }
+                 */
             }
 
             log("The thread is requesting a close gracefully...");
@@ -180,14 +180,11 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
         }
         finally {
             try {
-                // we may have thrown while running was true
+                // we may have thrown while running was true, just to be sure...
                 running.set(false);
-                // this is kinda dangerous but who cares...
-                targetThread = null;
                 // close the socket
                 if (sck != null) {
                     sck.close();
-                    sck = null;
                 }
             }
             catch (Exception ignore) {
@@ -197,19 +194,30 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
     }
 
     public void setClientInfo(String host, int port) {
-        targetHost = host;
-        targetPort = port;
+        try {
+            targetHost = host;
+            targetPort = port;
+            log("Setting client info to " + host + ":" + port);
+        }
+        catch (Exception exc) {
+            if (app != null) {
+                app.onException(exc);
+            }
+        }
     }
 
     public void stopServer() {
         try {
-            if (targetThread == null) {
-                log("Thread is already stopped");
+            log("Setting running flag to false");
+            running.set(false);
+            log("running should be false now");
+
+            if (targetThread == null || !targetThread.isAlive()) {
+                log("Thread is already stopped or not alive");
+                targetThread = null; // in case we died, but didn't set thr to null.
                 return;
             }
 
-            log("Setting running flag to false");
-            running.set(false);
             log("Joining thread");
             targetThread.join();
             targetThread = null;
@@ -225,12 +233,9 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
 
     public void startServer() {
         try {
-            if (targetThread != null) {
-                stopServer();
-            }
-
+            stopServer();
             running.set(true);
-            targetThread = new Thread(this);
+            targetThread = new Thread(this, "REMoveServerThread");
             targetThread.start();
             log("Server thread started...");
         }
@@ -244,7 +249,7 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
     public boolean isRunning() {
         try {
             // do we have a running server thread?
-            return targetThread != null;
+            return targetThread != null && targetThread.isAlive();
         }
         catch (Exception exc) {
             if (app != null) {

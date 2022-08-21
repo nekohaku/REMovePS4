@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.PreferenceManager;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -13,8 +14,11 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -45,10 +49,15 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
     private Sensor gyroSensor;
     private Sensor accelSensor;
 
-    private float[] lastGyroValues = new float[3];
-    private float[] lastAccelValues = new float[3];
-    private final float[] moveGyroValues = new float[3];
-    private final float[] moveAccelValues = new float[3];
+    private float[] lastGyroValues = null;
+    private float[] prevAccelValues = null;
+    private float[] lastAccelValues = null;
+    private final float[] moveGyroValues = new float[]{0, 0, 0};
+    private final float[] moveAccelValues = new float[]{
+            1.0f/3.0f,
+            1.0f/3.0f,
+            1.0f/3.0f
+    };
     private final Object dataLock = new Object();
 
     private int lastVibValue = -1;
@@ -59,13 +68,16 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
     private String strConnectedTo = NOBODY;
     private String strUsername = NOBODY;
 
+    // > 0 means do filter.
+    private float filterFactor = 0.0f;
+
     private void updateText() {
         statusTextView.setText(
-                getString(
-                        R.string.status_fmt,
-                        strConnectedTo,
-                        strUsername
-                )
+            getString(
+                R.string.status_fmt,
+                strConnectedTo,
+                strUsername
+            )
         );
     }
 
@@ -90,25 +102,20 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
         // invalidate all sensor data we might have:
         // this will send neutral 0,0,0 data to the game
         // if called while the server is running
-        lastGyroValues[0] = 0;
-        lastGyroValues[1] = 0;
-        lastGyroValues[2] = 0;
-        lastAccelValues[0] = 0;
-        lastAccelValues[1] = 0;
-        lastAccelValues[2] = 0;
+        lastGyroValues = null;
+        lastAccelValues = null;
+        prevAccelValues = null;
     }
 
-    private void fullStop(boolean stopServer) {
-        if (stopServer) {
-            moveClient.stopServer();
-        }
-
+    private void fullStop() {
+        applyLedToUi(0, 0, 0);
+        moveClient.stopServer();
         stopSensorListening();
         stopMotor();
-        applyLedToUi(0, 0, 0);
         strConnectedTo = NOBODY;
         strUsername = NOBODY;
         updateText();
+        applyLedToUi(0, 0, 0);
     }
 
     @Override
@@ -139,33 +146,55 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
         return super.onOptionsItemSelected(item);
     }
 
+    @SuppressLint("ClickableViewAccessibility")
+    /* I'm not sure blind people can use even the original PS Move :( that's sad though. */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        statusTextView = (TextView)findViewById(R.id.status_text_view);
+        statusTextView = findViewById(R.id.status_text_view);
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
 
-        ((Button)findViewById(R.id.button_server_start)).setOnClickListener(
+        findViewById(R.id.button_server_start).setOnClickListener(
             view -> {
                 String myHost = sharedPreferences.getString(
-                        "settings_hostname",
-                        "192.168.1.222"
+                    "settings_hostname",
+                    "<hostname not set>"
                 );
 
                 int myPort = Integer.parseInt(
-                        sharedPreferences.getString(
-                                "settings_port",
-                                Integer.toString(REMoveClient.DEFAULT_PORT)
-                        )
+                    sharedPreferences.getString(
+                        "settings_port",
+                        Integer.toString(REMoveClient.DEFAULT_PORT)
+                    )
                 );
+
+                float myFactor = filterFactor;
+                try {
+                    myFactor = Float.parseFloat(
+                        sharedPreferences.getString(
+                            "settings_filter",
+                            Float.toString(filterFactor)
+                        )
+                    );
+                }
+                catch (Exception ignore) {
+                    // just use the previous factor if it fails...
+                }
+
+                filterFactor = myFactor;
+
+                String ctxVersion = "ctxV" + REMoveClient.CONTEXT_VERSION;
 
                 // refresh value from prefs.
                 Toast.makeText(
-                        this,
-                        getString(R.string.ui_toast_starting, myHost + ":" + myPort),
-                        Toast.LENGTH_SHORT
+                    this,
+                    getString(
+                        R.string.ui_toast_starting,
+                        myHost + ":" + myPort + "," + myFactor + "," + ctxVersion
+                    ),
+                    Toast.LENGTH_SHORT
                 ).show();
                 startSensorListening();
                 moveClient.setClientInfo(myHost, myPort);
@@ -177,14 +206,14 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
             }
         );
 
-        ((Button)findViewById(R.id.button_server_stop)).setOnClickListener(
+        findViewById(R.id.button_server_stop).setOnClickListener(
             view -> {
                 Toast.makeText(
                     this,
                     R.string.ui_toast_stopping,
                     Toast.LENGTH_SHORT
                 ).show();
-                fullStop(true);
+                fullStop();
             }
         );
 
@@ -210,7 +239,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
                 mask = (1 << 3);
             }
             else if (view == btnSelect) {
-                mask = (1 << 0);
+                mask = (1);
             }
             else if (view == btnT) {
                 mask = (1 << 1);
@@ -219,6 +248,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
                 mask = (1 << 2);
             }
             else {
+                // unknown view?
                 return false;
             }
 
@@ -232,16 +262,25 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
             return false;
         };
 
-        vib = (Vibrator)getSystemService(Context.VIBRATOR_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            VibratorManager vibman = (VibratorManager)
+                getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+            if (vibman != null) {
+                vib = vibman.getDefaultVibrator();
+            }
+        }
+        else {
+            vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+        }
 
-        btnCross = ((Button)findViewById(R.id.button_cross));
-        btnCircle = ((Button)findViewById(R.id.button_circle));
-        btnSquare = ((Button)findViewById(R.id.button_square));
-        btnTriangle = ((Button)findViewById(R.id.button_triangle));
-        btnStart = ((Button)findViewById(R.id.button_start));
-        btnSelect = ((Button)findViewById(R.id.button_select));
-        btnMove = ((Button)findViewById(R.id.button_move));
-        btnT = ((Button)findViewById(R.id.button_t));
+        btnCross = findViewById(R.id.button_cross);
+        btnCircle = findViewById(R.id.button_circle);
+        btnSquare = findViewById(R.id.button_square);
+        btnTriangle = findViewById(R.id.button_triangle);
+        btnStart = findViewById(R.id.button_start);
+        btnSelect = findViewById(R.id.button_select);
+        btnMove = findViewById(R.id.button_move);
+        btnT = findViewById(R.id.button_t);
 
         btnCross.setOnTouchListener(btnHandler);
         btnCircle.setOnTouchListener(btnHandler);
@@ -269,7 +308,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        fullStop(true);
+        fullStop();
         print("onDestroy is successful. Goodbye!");
     }
 
@@ -279,10 +318,22 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
         return true;
     }
 
-    private void applyMotorToUi() {
+    private void applyMotorToUi(int newMotor) {
+        lastVibValue = newMotor;
         if (vib != null && vib.hasVibrator() && !weArePaused) {
             if (lastVibValue > 63) {
-                vib.vibrate(5 * 1000);
+                // the Move physically vibrates for 5 seconds after setting this.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    vib.vibrate(
+                        VibrationEffect.createOneShot(
+                            5 * 1000,
+                            lastVibValue
+                        )
+                    );
+                }
+                else {
+                    vib.vibrate(5 * 1000);
+                }
             }
             else {
                 vib.cancel();
@@ -326,7 +377,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
         if (moveClient.isRunning()) {
             startSensorListening();
             // resume any vibration:
-            applyMotorToUi();
+            applyMotorToUi(lastVibValue);
         }
     }
 
@@ -334,7 +385,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
     public void onException(Exception exc) {
         runOnUiThread(
             () -> {
-                fullStop(false);
+                fullStop();
                 (new AlertDialog.Builder(this))
                     .setTitle(R.string.err_title)
                     .setMessage(
@@ -356,7 +407,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
                 CharSequence[] items = new CharSequence[list.size()];
                 for (int i = 0; i < items.length; ++i) {
                     REMoveUser it = list.get(i);
-                    // Example: "User1 (UID=0x100001)"
+                    // Example: "1 - User1 (UID=0x100001)"
                     items[i] = (i + 1) + " - " + it.getUserName()
                             + " - "
                             + "(UID=0x" + Integer.toHexString(it.getUserHandle()) + ")";
@@ -365,23 +416,22 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
                 (new AlertDialog.Builder(this))
                     .setTitle(R.string.user_picker_title)
                     .setItems(items,
-                            (dialogInterface, i) -> {
-                                if (i >= 0) {
-                                    strUsername = list.get(i).getUserName();
-                                }
-                                else {
-                                    strUsername = NOBODY;
-                                }
-                                updateText();
-                                c.onPickerDone(i);
+                        (dialogInterface, i) -> {
+                            if (i < 0) {
+                                fullStop();
+                                return;
                             }
+
+                            strUsername = list.get(i).getUserName();
+                            updateText();
+                            c.onPickerDone(i);
+                        }
                     )
                     .setNegativeButton(R.string.user_picker_nobody,
-                            (dialogInterface, i) -> {
-                                strUsername = NOBODY;
-                                updateText();
-                                c.onPickerDone(-1);
-                            }
+                        (dialog, i) -> fullStop()
+                    )
+                    .setOnCancelListener(
+                        (dialog) -> fullStop()
                     )
                     .create()
                     .show();
@@ -392,9 +442,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
     @Override
     public void onColorUpdate(int red, int green, int blue) {
         // apply LED color:
-        runOnUiThread(() -> {
-            applyLedToUi(red, green, blue);
-        });
+        runOnUiThread(() -> applyLedToUi(red, green, blue));
     }
 
     @Override
@@ -405,12 +453,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
             otherwise it'll stop.
          */
 
-        runOnUiThread(() -> {
-            // update the target motor value
-            lastVibValue = motor;
-            // try to apply it now (we might be paused though, if yes that won't happen)
-            applyMotorToUi();
-        });
+        runOnUiThread(() -> applyMotorToUi(lastVibValue));
     }
 
     @Override
@@ -430,8 +473,8 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
             Android Sensor Format:
             Imagine the phone is held vertically straight, the screen is pointing at you.
             X - points to the right
-            Y - points at the ceiling (!!!)
-            Z - points at you (!!!!!)
+            Y - points at the ceiling, not at you like in PS Move
+            Z - points at you, not at the floor like in PS Move (in Y the direction is reversed)
             ------------------------------------------------------------------------------
             not only that, PS Move expects:
             - accelerometer data in G's, while Android outputs data in m/s^2's
@@ -441,14 +484,31 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
             to allow the client to implement the sensors in it's own way.
          */
         synchronized (dataLock) {
-            // Y<->Z + -Z, already in rad/s:
-            moveGyroValues[0] =  lastGyroValues[0];
-            moveGyroValues[1] =  lastGyroValues[2];
-            moveGyroValues[2] = -lastGyroValues[1];
-            // Y<->Z + -Z + m/s^2 -> G's:
-            moveAccelValues[0] =  lastAccelValues[0] / SensorManager.STANDARD_GRAVITY;
-            moveAccelValues[1] =  lastAccelValues[2] / SensorManager.STANDARD_GRAVITY;
-            moveAccelValues[2] = -lastAccelValues[1] / SensorManager.STANDARD_GRAVITY;
+            if (lastGyroValues != null) {
+                // Y<->Z + -Z, already in rad/s:
+                moveGyroValues[0] =  lastGyroValues[0];
+                moveGyroValues[1] =  lastGyroValues[2];
+                moveGyroValues[2] = -lastGyroValues[1];
+            }
+
+            if (lastAccelValues != null) {
+                if (prevAccelValues != null && filterFactor > 0.0f) {
+                    // a very awful filter implementation:
+                    float invFilterFactor = 1.0f - filterFactor;
+                    // the factor must be in (0;1) range.
+                    lastAccelValues[0] =
+                        prevAccelValues[0] * invFilterFactor + lastAccelValues[0] * filterFactor;
+                    lastAccelValues[1] =
+                        prevAccelValues[1] * invFilterFactor + lastAccelValues[1] * filterFactor;
+                    lastAccelValues[2] =
+                        prevAccelValues[2] * invFilterFactor + lastAccelValues[2] * filterFactor;
+                    //.
+                }
+                // Y<->Z + -Z + m/s^2 -> G's:
+                moveAccelValues[0] =  lastAccelValues[0] / SensorManager.STANDARD_GRAVITY;
+                moveAccelValues[1] =  lastAccelValues[2] / SensorManager.STANDARD_GRAVITY;
+                moveAccelValues[2] = -lastAccelValues[1] / SensorManager.STANDARD_GRAVITY;
+            }
         }
 
         return appData;
@@ -469,6 +529,7 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
         }
         else if (st == Sensor.TYPE_ACCELEROMETER) {
             synchronized (dataLock) {
+                prevAccelValues = lastAccelValues;
                 lastAccelValues = sensorEvent.values;
             }
         }

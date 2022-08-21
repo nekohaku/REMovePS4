@@ -39,8 +39,8 @@ typedef struct OrbisNetEpollEvent {
 /* 1 server socket + 4 controllers */
 #define REMOVECTX_MAX_SOCKETS (1 + REMOVECTX_MAX_CLIENTS)
 /* our current protocol version */
-#define REMOVECTX_SERVER_VERSION 1
-/* packet struct attributes, packed is needed */
+#define REMOVECTX_SERVER_VERSION 2
+/* network packet struct attributes, packed is needed */
 #define REMOVECTX_PKT_ATTR __attribute__((packed))
 
 typedef struct REMovePortData REMovePortData;
@@ -49,13 +49,15 @@ typedef struct REMoveContextClientData {
     int32_t isConnected; // ==1 live connection to the device, ==0 otherwise
     int32_t userHandle;
     int32_t counter; // latest counter value for move samples
-    int32_t howmany; // how many samples are actually present in buffer[]?
     sceMoveDeviceInfo currentDeviceInfo; // sphere radius etc
+    sceMoveExtensionPortInfo currentExtensionInfo; // V2 ctx only
     sceMoveData buffer[32]; // ring buffer-ish array of move samples
     int32_t setColorQueued;
     uint8_t red, green, blue; // only read if setColorQueued==1, reset in Client Thread
     int32_t setVibrationQueued;
     uint8_t motor; // only read if setVibrationQueued==1, reset in Client Thread
+    int32_t setExtensionDataQueued;
+    unsigned char extensionData[40]; // only read if setExtensionDataQueued==1, reset in Client Thread
     REMovePortData *portLink;
 } REMoveContextClientData;
 
@@ -84,7 +86,7 @@ struct IREMoveContextData {
 };
 
 // this is the first packet that is sent from the server to the client upon connection
-typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketHelloV1 {
+typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketHelloV2 {
     int32_t sizeThis; // size of the whole packet, including this field.
     // must be set to `REMOVECTX_SERVER_VERSION`, client must abort the socket if it doesn't know our protocol
     int32_t serverVersion;
@@ -97,33 +99,37 @@ typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketHelloV1 {
     char username2[16 + 1];
     char username3[16 + 1];
     char username4[16 + 1];
-} REMoveNetPacketHelloV1;
+} REMoveNetPacketHelloV2;
 
 // treat as little endian bitflags
-typedef enum REMoveNetUpdateFlagsV1 {
+typedef enum REMoveNetUpdateFlagsV2 {
     // use to initialize a value
     UPDATE_FLAG_SET_NONE = 0,
     // `red`, `green`, `blue` are to be read and applied
     UPDATE_FLAG_SET_VIBRATION = (1 << 0),
     // `motor` is to be read and applied
-    UPDATE_FLAG_SET_LIGHTSPHERE_COLOR = (1 << 1)
-} REMoveNetUpdateFlagsV1;
+    UPDATE_FLAG_SET_LIGHTSPHERE_COLOR = (1 << 1),
+    // `extData` is to be read and applied
+    UPDATE_FLAG_SET_EXTENSION_DATA_V2 = (1 << 2)
+} REMoveNetUpdateFlagsV2;
 
 // this is the second and onward packet that is sent from the server to the client
-typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketToClientV1 {
+typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketToClientV2 {
     int32_t sizeThis; // size of the whole packet, including this field.
     // which information to update?
-    int32_t updateFlagsV1;
+    int32_t updateFlagsV2;
     // if flag `UPDATE_FLAG_SET_LIGHTSPHERE_COLOR` is set: ignore otherwise
     uint8_t red;
     uint8_t green;
     uint8_t blue;
     // if flag `UPDATE_FLAG_SET_VIBRATION` is set: ignore otherwise
     uint8_t motor;
-} REMoveNetPacketToClientV1;
+    // if flag `UPDATE_FLAG_SET_EXTENSION_DATA` is set: ignore otherwise
+    unsigned char extData[40];
+} REMoveNetPacketToClientV2;
 
 // this is the only packet that is set from the client to the server (otherwise it aborts the socket)
-typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketFromClientV1 {
+typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketFromClientV2 {
     int32_t sizeThis; // size of the whole packet, including this field.
     int32_t userHandle; // to which user this client belongs.
     float accelX;
@@ -151,7 +157,11 @@ typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketFromClientV1 {
     uint16_t uAnalogLeftY;
     uint8_t baCustom[5];
     // -- extension data fields }
-} REMoveNetPacketFromClientV1;
+    // -- V2 context extension {
+    uint32_t uiExtensionPortId;
+    uint8_t baExtensionPortDeviceInfo[38];
+    // -- V2 context extension }
+} REMoveNetPacketFromClientV2;
 
 int IREMoveContext_FreeSocket(IREMoveContext *self, int sck) {
     if (sck >= 0) {
@@ -232,7 +242,7 @@ REMovePortData *IREMoveContext_HasIndex1(IREMoveContext *self, REMovePortData *e
     return 0;
 }
 
-void IREMoveContext_ParseClientData(IREMoveContext *self, const REMoveNetPacketFromClientV1 *inData, REMoveNetPacketToClientV1 *outData, int myIndex) {
+void IREMoveContext_ParseClientData(IREMoveContext *self, const REMoveNetPacketFromClientV2 *inData, REMoveNetPacketToClientV2 *outData, int myIndex) {
     int index = myIndex - 1;
     if (index < 0) {
         kprintf("[removethr]: Index for ParseClientData is invalid: %d\n", index);
@@ -253,7 +263,7 @@ void IREMoveContext_ParseClientData(IREMoveContext *self, const REMoveNetPacketF
         if (client->counter == INT32_MAX) {
             client->counter = 0;
         }
-        int thiscounter = client->counter++;
+        int thiscounter = ++client->counter;
         if ((thiscounter % 10000) == 0) {
             kprintf("[removethr]: The thread is alive. counter=%d...\n", thiscounter);
         }
@@ -288,15 +298,15 @@ void IREMoveContext_ParseClientData(IREMoveContext *self, const REMoveNetPacketF
         const int datarraylen = sizeof(client->buffer) / sizeof(client->buffer[0]);
         memmove(&datarray[0], &datarray[1], (datarraylen - 1) * sizeof(client->buffer[0]));
         datarray[datarraylen - 1] = dat;
-        client->howmany++;
-        if (client->howmany > datarraylen) {
-            client->howmany = datarraylen;
-        }
 
         client->currentDeviceInfo.fSphereRadius = inData->sphereRadius;
         client->currentDeviceInfo.faAccelToSphereOffset[0] = inData->accelToSphereX;
         client->currentDeviceInfo.faAccelToSphereOffset[1] = inData->accelToSphereY;
         client->currentDeviceInfo.faAccelToSphereOffset[2] = inData->accelToSphereZ;
+        // V2 extensions: {
+        client->currentExtensionInfo.uiExtensionPortId = inData->uiExtensionPortId;
+        memcpy(client->currentExtensionInfo.baExtensionPortDeviceInfo, inData->baExtensionPortDeviceInfo, sizeof(inData->baExtensionPortDeviceInfo));
+        // V2 extensions: }
         client->userHandle = inData->userHandle;
 
         if (!client->portLink) {
@@ -343,19 +353,26 @@ void IREMoveContext_ParseClientData(IREMoveContext *self, const REMoveNetPacketF
         }
 
         outData->sizeThis = sizeof(*outData);
-        outData->updateFlagsV1 = UPDATE_FLAG_SET_NONE;
+        outData->updateFlagsV2 = UPDATE_FLAG_SET_NONE;
         if (client->setColorQueued) {
             client->setColorQueued = 0;
-            outData->updateFlagsV1 |= UPDATE_FLAG_SET_LIGHTSPHERE_COLOR;
+            outData->updateFlagsV2 |= UPDATE_FLAG_SET_LIGHTSPHERE_COLOR;
             outData->red = client->red;
             outData->green = client->green;
             outData->blue = client->blue;
         }
         if (client->setVibrationQueued) {
             client->setVibrationQueued = 0;
-            outData->updateFlagsV1 |= UPDATE_FLAG_SET_VIBRATION;
+            outData->updateFlagsV2 |= UPDATE_FLAG_SET_VIBRATION;
             outData->motor = client->motor;
         }
+        // V2 extensions: {
+        if (client->setExtensionDataQueued) {
+            client->setExtensionDataQueued = 0;
+            outData->updateFlagsV2 |= UPDATE_FLAG_SET_EXTENSION_DATA_V2;
+            memcpy(outData->extData, client->extensionData, sizeof(outData->extData));
+        }
+        // V2 extensions: }
     }
 }
 
@@ -412,7 +429,7 @@ int IREMoveContext_ServerEvent(IREMoveContext *self, int epollId, OrbisNetEpollE
             return 1;
         }
         // established a connection with the client, send a HELLO packet
-        REMoveNetPacketHelloV1 pkt = { 0 };
+        REMoveNetPacketHelloV2 pkt = { 0 };
         pkt.sizeThis = sizeof(pkt);
         pkt.serverVersion = REMOVECTX_SERVER_VERSION;
         pkt.user1 = list.userId[0];
@@ -466,7 +483,7 @@ int IREMoveContext_ClientEvent(IREMoveContext *self, int epollId, OrbisNetEpollE
             IREMoveContext_ParseClientData(self, 0, 0, index);
         }
         else if (st & 0x01) {
-            REMoveNetPacketFromClientV1 pkt = { 0 };
+            REMoveNetPacketFromClientV2 pkt = { 0 };
             int got = sceNetRecv(s, &pkt, sizeof(pkt), 0);
             if (got != sizeof(pkt) || pkt.sizeThis != sizeof(pkt)) {
                 kprintf("[removethr]: Client recv err %d, %d, %d.\n", got, (int)sizeof(pkt), pkt.sizeThis);
@@ -475,7 +492,7 @@ int IREMoveContext_ClientEvent(IREMoveContext *self, int epollId, OrbisNetEpollE
                 IREMoveContext_ParseClientData(self, 0, 0, index);
             }
             else {
-                REMoveNetPacketToClientV1 sendout = { 0 };
+                REMoveNetPacketToClientV2 sendout = { 0 };
                 IREMoveContext_ParseClientData(self, &pkt, &sendout, index);
                 ok = sceNetSend(s, &sendout, sizeof(sendout), 0);
                 if (ok != sizeof(sendout)) {
@@ -617,7 +634,6 @@ sceError IREMoveContext_Init(IREMoveContext *self) {
         kprintf("[removectx]: Failed to spawn a server thread, 0x%X\n", ok);
         return SCE_MOVE_ERROR_FATAL;
     }
-
     kprintf("[removectx]: Context created OK, awaiting for clients now...\n");
     return SCE_OK;
 }
@@ -648,6 +664,10 @@ sceError IREMoveContext_Term(IREMoveContext *self) {
     // the poll thingy has to be gone!!
     ((int(*)(int))&sceNetEpollDestroy)(self->Data->serverEpoll);
     self->Data->serverEpoll = -1;
+
+    // reset all public API data as well
+    memset(self->Data->clientData, 0, sizeof(self->Data->clientData));
+    memset(self->Data->portData, 0, sizeof(self->Data->portData));
 
     // we're done here...
     kprintf("[removectx]: Shutdown complete...\n");
@@ -682,11 +702,10 @@ sceHandleOrError IREMoveContext_Open(IREMoveContext *self, sceUserId userId, sce
 
     kprintf("[removeAPI]: opening port for %s (uid=%d,ind=%d)\n", username, userId, iDeviceIndex);
 
+    int err = SCE_MOVE_ERROR_MAX_CONTROLLERS_EXCEEDED, porthandle = 0, i;
     scePthreadMutexLock(&self->Data->serverMutex);
     // critical section: {
-    int err = SCE_MOVE_ERROR_MAX_CONTROLLERS_EXCEEDED, porthandle = 0;
-
-    for (int i = 0; i < sizeof(self->Data->portData) / sizeof(self->Data->portData[0]); ++i) {
+    for (i = 0; i < sizeof(self->Data->portData) / sizeof(self->Data->portData[0]); ++i) {
         if (!self->Data->portData[i].isOpen) {
             portLink = &self->Data->portData[i];
             porthandle = i;
@@ -778,6 +797,7 @@ sceError IREMoveContext_GetDeviceInfo(IREMoveContext *self, sceHandle hDeviceHan
     }
 
     if (!pOutDeviceInfo) {
+        kprintf("[removeAPI]: %s Invalid MoveDeviceInfo pointer passed for handle %d\n", __func__, hDeviceHandle);
         return SCE_MOVE_ERROR_INVALID_ARG;
     }
 
@@ -790,11 +810,36 @@ sceError IREMoveContext_GetDeviceInfo(IREMoveContext *self, sceHandle hDeviceHan
     else if (!self->Data->portData[hDeviceHandle].clientDataLink) {
         ret = SCE_MOVE_RETURN_CODE_NO_CONTROLLER_CONNECTED;
     }
-    else if (!pOutDeviceInfo) {
-        ret = SCE_MOVE_ERROR_INVALID_ARG;
-    }
     else {
         (*pOutDeviceInfo) = self->Data->portData[hDeviceHandle].clientDataLink->currentDeviceInfo;
+    }
+    // }: critical section
+    scePthreadMutexUnlock(&self->Data->serverMutex);
+    return ret;
+}
+
+sceError IREMoveContext_GetExtensionPortInfo(IREMoveContext *self, sceHandle hDeviceHandle, sceMoveExtensionPortInfo *pOutPortInfo) {
+    if (hDeviceHandle < 0 || hDeviceHandle >= (sizeof(self->Data->portData) / sizeof(self->Data->portData[0]))) {
+        kprintf("[removeAPI]: %s Invalid handle value %d\n", __func__, hDeviceHandle);
+        return SCE_MOVE_ERROR_INVALID_HANDLE;
+    }
+
+    if (!pOutPortInfo) {
+        kprintf("[removeAPI]: %s Invalid ExtensionPortInfo pointer passed for handle %d\n", __func__, hDeviceHandle);
+        return SCE_MOVE_ERROR_INVALID_ARG;
+    }
+
+    sceError ret = SCE_OK;
+    scePthreadMutexLock(&self->Data->serverMutex);
+    // critical section: {
+    if (!self->Data->portData[hDeviceHandle].isOpen) {
+        ret = SCE_MOVE_ERROR_INVALID_HANDLE;
+    }
+    else if (!self->Data->portData[hDeviceHandle].clientDataLink) {
+        ret = SCE_MOVE_RETURN_CODE_NO_CONTROLLER_CONNECTED;
+    }
+    else {
+        (*pOutPortInfo) = self->Data->portData[hDeviceHandle].clientDataLink->currentExtensionInfo;
     }
     // }: critical section
     scePthreadMutexUnlock(&self->Data->serverMutex);
@@ -812,7 +857,7 @@ sceError IREMoveContext_ReadStateRecent(IREMoveContext *self, sceHandle hDeviceH
         return SCE_MOVE_ERROR_INVALID_ARG;
     }
 
-    sceError ret = SCE_OK;
+    sceError ret = SCE_OK; *pOutActualLength = 0;
     scePthreadMutexLock(&self->Data->serverMutex);
     // critical section: {
     if (!self->Data->portData[hDeviceHandle].isOpen) {
@@ -825,7 +870,6 @@ sceError IREMoveContext_ReadStateRecent(IREMoveContext *self, sceHandle hDeviceH
         REMoveContextClientData *cl = self->Data->portData[hDeviceHandle].clientDataLink;
         const int clelemlen = sizeof(cl->buffer[0]);
         const int clarrlen = sizeof(cl->buffer) / clelemlen;
-        *pOutActualLength = 0;
         for (int i = 0; i < clarrlen; ++i) {
             // if we have a timestamp match or we hit the "hole" in the data, break.
             if (cl->buffer[i].dataTimestamp > dataTimestampInMicroseconds) {
@@ -834,31 +878,9 @@ sceError IREMoveContext_ReadStateRecent(IREMoveContext *self, sceHandle hDeviceH
             }
         }
 
-#if 0
-        if ((*pOutActualLength) <= 0) {
-            // hmmmm we are lacking sample data? block the thread then ;-;
-            while (cl->howmany < 2) {
-                // let the server thread capture more samples:
-                scePthreadMutexUnlock(&self->Data->serverMutex);
-                sceKernelUsleep(10 * 1000);
-                // okay, now lock it and inspect the new value:
-                scePthreadMutexLock(&self->Data->serverMutex);
-                // oh shit.
-                if (cl->portLink == 0) {
-                    return SCE_MOVE_RETURN_CODE_NO_CONTROLLER_CONNECTED;
-                }
-            }
-            // meh.
-            *pOutActualLength = clarrlen - cl->howmany;
-        }
-#endif /* ugly hack network speed, do not uncomment unless really have to... */
-
         if ((*pOutActualLength) > 0) {
             // pass the actual data to the game:
             memcpy(paOutMoveData, &cl->buffer[clarrlen - (*pOutActualLength)], clelemlen * (*pOutActualLength));
-            // reset our data:
-            memset(cl->buffer, 0, clarrlen * clelemlen);
-            cl->howmany = 0;
         }
     }
     // }: critical section
@@ -873,6 +895,7 @@ sceError IREMoveContext_ReadStateLatest(IREMoveContext *self, sceHandle hDeviceH
     }
 
     if (!pOutMoveData) {
+        kprintf("[removeAPI]: %s Invalid sceMoveData pointer passed for handle %d\n", __func__, hDeviceHandle);
         return SCE_MOVE_ERROR_INVALID_ARG;
     }
 
@@ -887,9 +910,8 @@ sceError IREMoveContext_ReadStateLatest(IREMoveContext *self, sceHandle hDeviceH
     }
     else {
         REMoveContextClientData *cl = self->Data->portData[hDeviceHandle].clientDataLink;
-        (*pOutMoveData) = cl->buffer[
-            ((sizeof(cl->buffer) / sizeof(cl->buffer[0])) - 1)
-        ];
+        // just copy whatever is the last sample we have...
+        (*pOutMoveData) = cl->buffer[((sizeof(cl->buffer) / sizeof(cl->buffer[0])) - 1)];
     }
     // }: critical section
     scePthreadMutexUnlock(&self->Data->serverMutex);
@@ -930,10 +952,8 @@ sceError IREMoveContext_Close(IREMoveContext *self, sceHandle hDeviceHandle) {
     }
     else {
         REMovePortData *portLink = &self->Data->portData[hDeviceHandle];
-
         if (portLink->clientDataLink) {
             REMoveContextClientData *clientLink = portLink->clientDataLink;
-
             for (int i = 0; i < REMOVECTX_MAX_CLIENTS; ++i) {
                 if (clientLink == &self->Data->clientData[i]) {
                     int sck = self->Data->epollSockets[1 + i];
@@ -942,12 +962,46 @@ sceError IREMoveContext_Close(IREMoveContext *self, sceHandle hDeviceHandle) {
                     self->Data->epollSockets[1 + i] = -1;
                 }
             }
-
+            // destroy the client link
             memset(clientLink, 0, sizeof(*clientLink));
             kprintf("[removeAPI]: client link destroyed %d\n", hDeviceHandle);
         }
-
+        // destroy the public API port link as well
         memset(portLink, 0, sizeof(*portLink));
+        kprintf("[removeAPI]: device handle closed %d\n", hDeviceHandle);
+    }
+    // }: critical section
+    scePthreadMutexUnlock(&self->Data->serverMutex);
+    return ret;
+}
+
+sceError IREMoveContext_SetExtensionPortOutput( /* -- DEPRECATED -- */ IREMoveContext *self, sceHandle hDeviceHandle, unsigned char baData[40]) {
+    if (hDeviceHandle < 0 || hDeviceHandle >= (sizeof(self->Data->portData) / sizeof(self->Data->portData[0]))) {
+        kprintf("[removeAPI]: %s Invalid handle value %d\n", __func__, hDeviceHandle);
+        return SCE_MOVE_ERROR_INVALID_HANDLE;
+    }
+
+    if (!baData) {
+        kprintf("[removeAPI]: %s Invalid baData pointer for handle %d\n", __func__, hDeviceHandle);
+        return SCE_MOVE_ERROR_INVALID_ARG;
+    }
+
+    sceError ret = SCE_OK;
+    scePthreadMutexLock(&self->Data->serverMutex);
+    // critical section: {
+    if (!self->Data->portData[hDeviceHandle].isOpen) {
+        ret = SCE_MOVE_ERROR_INVALID_HANDLE;
+    }
+    else if (!self->Data->portData[hDeviceHandle].clientDataLink) {
+        ret = SCE_MOVE_RETURN_CODE_NO_CONTROLLER_CONNECTED;
+    }
+    else {
+        self->Data->portData[hDeviceHandle].clientDataLink->setExtensionDataQueued = 1;
+        memcpy(
+            self->Data->portData[hDeviceHandle].clientDataLink->extensionData,
+            baData,
+            sizeof(self->Data->portData[hDeviceHandle].clientDataLink->extensionData)
+        );
     }
     // }: critical section
     scePthreadMutexUnlock(&self->Data->serverMutex);
@@ -975,7 +1029,9 @@ static IREMoveContext __ctx__ = {
     .SetLightSphere = &IREMoveContext_SetLightSphere,
     .SetVibration = &IREMoveContext_SetVibration,
     .GetDeviceInfo = &IREMoveContext_GetDeviceInfo,
+    .GetExtensionPortInfo = &IREMoveContext_GetExtensionPortInfo,
     .ResetLightSphere = &IREMoveContext_ResetLightSphere,
+    .SetExtensionPortOutput = &IREMoveContext_SetExtensionPortOutput,
     // context data: --
     .Data = &__ctx_data__
 };

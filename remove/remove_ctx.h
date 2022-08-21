@@ -23,7 +23,9 @@ struct IREMoveContext {
     sceError(*SetLightSphere)(IREMoveContext *self, sceHandle hDeviceHandle, sceByte redColorValue, sceByte greenColorValue, sceByte blueColorValue);
     sceError(*SetVibration)(IREMoveContext *self, sceHandle hDeviceHandle, sceByte motorValue);
     sceError(*GetDeviceInfo)(IREMoveContext *self, sceHandle hDeviceHandle, sceMoveDeviceInfo *pOutDeviceInfo);
+    sceError(*GetExtensionPortInfo)( /* -- DEPRECATED -- */ IREMoveContext *self, sceHandle hDeviceHandle, sceMoveExtensionPortInfo *pOutPortInfo);
     sceError(*ResetLightSphere)(IREMoveContext *self, sceHandle hDeviceHandle);
+    sceError(*SetExtensionPortOutput)( /* -- DEPRECATED -- */ IREMoveContext *self, sceHandle hDeviceHandle, unsigned char baData[40]);
 
     // context data: -- do not use, private.
     IREMoveContextData *Data;

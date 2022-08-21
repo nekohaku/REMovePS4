@@ -152,12 +152,30 @@ sceError sceMoveGetDeviceInfoImpl(sceHandle hDeviceHandle, sceMoveDeviceInfo *pO
     return Context->GetDeviceInfo(Context, hDeviceHandle, pOutDeviceInfo);
 }
 
+sceError sceMoveGetExtensionPortInfoImpl( /* -- DEPRECATED -- */ sceHandle hDeviceHandle, sceMoveExtensionPortInfo *pOutPortInfo) {
+    if (!Context) {
+        return SCE_MOVE_ERROR_NOT_INIT;
+    }
+
+    /* -- DEPRECATED -- */
+    return Context->GetExtensionPortInfo(Context, hDeviceHandle, pOutPortInfo);
+}
+
 sceError sceMoveResetLightSphereImpl(sceHandle hDeviceHandle) {
     if (!Context) {
         return SCE_MOVE_ERROR_NOT_INIT;
     }
 
     return Context->ResetLightSphere(Context, hDeviceHandle);
+}
+
+sceError sceMoveSetExtensionPortOutputImpl( /* -- DEPRECATED -- */ sceHandle hDeviceHandle, unsigned char baData[40]) {
+    if (!Context) {
+        return SCE_MOVE_ERROR_NOT_INIT;
+    }
+
+    /* -- DEPRECATED -- */
+    return Context->SetExtensionPortOutput(Context, hDeviceHandle, baData);
 }
 
 void REMove_module_start() {

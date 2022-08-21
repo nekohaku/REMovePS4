@@ -6,13 +6,14 @@
     <string name="err_message">Произошла ошибка: %1$s</string>
     <string name="user_picker_title">Выберите пользователя</string>
     <string name="user_picker_nobody">Отмена</string>
-    <string name="ui_server">ПОДКЛЮЧИТЬСЯ</string>
-    <string name="ui_server_stop">ОТКЛЮЧИТЬСЯ</string>
-    <string name="ui_toast_starting">Подключаюсь... (%1$s)</string>
-    <string name="ui_toast_stopping">Отключаюсь...</string>
+    <string name="ui_server">Подключиться</string>
+    <string name="ui_server_stop">Отключиться</string>
+    <string name="ui_toast_starting">Подключаюсь… (%1$s)</string>
+    <string name="ui_toast_stopping">Отключаюсь…</string>
     <string name="ui_toast_stop_server">Сначала остановите соединение.</string>
     <string name="ui_settings_header">Настройки</string>
     <string name="ui_settings_hostname_header">IP-адрес или имя хоста Консоли</string>
     <string name="ui_settings_port_header">Сетевой порт Консоли</string>
     <string name="status_fmt">Добро пожаловать в REMove :) сделал vk.com/nkrapivindev\nПодключены к: %1$s\nЗашли в: %2$s\nЗадний фон будет окрашиваться в цвет сферы PS Move.\nПри нажатии кнопок может быть задержка.\nСлава Котам!</string>
+    <string name="ui_settings_apply_filter">Множитель фильтра акселерометра</string>
 </resources>

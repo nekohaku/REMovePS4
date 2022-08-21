@@ -88,6 +88,16 @@ public class REMoveStream {
         skip(sizeofArray);
     }
 
+    public void readBytesInto(byte[] output, int offs, int amount) {
+        System.arraycopy(buf, pos, output, offs, amount);
+        skip(amount);
+    }
+
+    public void writeBytes(byte[] input, int offs, int amount) {
+        System.arraycopy(input, offs, buf, pos, amount);
+        skip(amount);
+    }
+
     public void rewind() {
         pos = 0;
     }

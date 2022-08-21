@@ -1,7 +1,7 @@
 package org.nkrapivindev.remove;
 
-public class REMoveNetPacketFromClientV1 implements IREMoveNetPacket {
-    public static final int EXPECTED_SIZEOF = 75;
+public class REMoveNetPacketFromClientV2 implements IREMoveNetPacket {
+    public static final int EXPECTED_SIZEOF = 117;
 
     // to which user we belong?
     public REMoveUser user;
@@ -25,6 +25,9 @@ public class REMoveNetPacketFromClientV1 implements IREMoveNetPacket {
         sensorTemperature,
         sphereRadius,
         accelToSphereX, accelToSphereY, accelToSphereZ;
+    // v2 extensions:
+    public int uiExtensionPortId;
+    public byte[] baExtensionPortDeviceInfo = new byte[38];
 
     @Override
     public void fromStream(REMoveStream s) throws REMoveException {
@@ -61,10 +64,9 @@ public class REMoveNetPacketFromClientV1 implements IREMoveNetPacket {
         s.writeInt16(uAnalogRightY);
         s.writeInt16(uAnalogLeftX);
         s.writeInt16(uAnalogLeftY);
-        s.writeByte(baCustom[0]);
-        s.writeByte(baCustom[1]);
-        s.writeByte(baCustom[2]);
-        s.writeByte(baCustom[3]);
-        s.writeByte(baCustom[4]);
+        s.writeBytes(baCustom, 0, baCustom.length);
+        // v2 extensions:
+        s.writeInt32(uiExtensionPortId);
+        s.writeBytes(baExtensionPortDeviceInfo, 0, baExtensionPortDeviceInfo.length);
     }
 }

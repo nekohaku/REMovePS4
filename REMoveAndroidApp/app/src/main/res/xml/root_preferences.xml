@@ -12,9 +12,15 @@
         <EditTextPreference
             app:defaultValue="19794"
             app:key="settings_port"
-            android:inputType="numberDecimal"
-            android:digits="0123456789"
+            android:inputType="number"
             app:title="@string/ui_settings_port_header"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="0"
+            app:key="settings_filter"
+            android:inputType="numberDecimal"
+            app:title="@string/ui_settings_apply_filter"
             app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>

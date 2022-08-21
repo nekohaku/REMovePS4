@@ -119,6 +119,12 @@ typedef struct sceMoveData {
     sceFloat sensorTemperature;
 } sceMoveData;
 
+/* -- DEPRECATED -- */
+typedef struct sceMoveExtensionPortInfo {
+    unsigned int uiExtensionPortId;
+    unsigned char baExtensionPortDeviceInfo[38];
+} sceMoveExtensionPortInfo;
+
 typedef enum sceError {
     SCE_OK = (int)0x0,
     SCE_MOVE_ERROR_ALREADY_INIT = (int)0x80EE0002,
@@ -231,12 +237,32 @@ extern sceError sceMoveGetDeviceInfoImpl(
     sceMoveDeviceInfo *pOutDeviceInfo
 );
 
+typedef sceError(*sceMoveGetExtensionPortInfoType)( /* -- DEPRECATED -- */
+    sceHandle hDeviceHandle,
+    sceMoveExtensionPortInfo *pOutPortInfo
+);
+
+extern sceError sceMoveGetExtensionPortInfoImpl( /* -- DEPRECATED -- */
+    sceHandle hDeviceHandle,
+    sceMoveExtensionPortInfo *pOutPortInfo
+);
+
 typedef sceError(*sceMoveResetLightSphereType)(
     sceHandle hDeviceHandle
 );
 
 extern sceError sceMoveResetLightSphereImpl(
     sceHandle hDeviceHandle
+);
+
+typedef sceError(*sceMoveSetExtensionPortOutputType)( /* -- DEPRECATED -- */
+    sceHandle hDeviceHandle,
+    unsigned char baData[40]
+);
+
+extern sceError sceMoveSetExtensionPortOutputImpl( /* -- DEPRECATED -- */
+    sceHandle hDeviceHandle,
+    unsigned char baData[40]
 );
 
 #ifdef __cplusplus

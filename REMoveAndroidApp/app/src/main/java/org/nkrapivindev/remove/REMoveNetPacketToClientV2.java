@@ -1,13 +1,15 @@
 package org.nkrapivindev.remove;
 
-public class REMoveNetPacketToClientV1 implements IREMoveNetPacket {
-    public static final int EXPECTED_SIZEOF = 12;
+public class REMoveNetPacketToClientV2 implements IREMoveNetPacket {
+    public static final int EXPECTED_SIZEOF = 52;
     public static final int UPDATE_FLAG_SET_NONE = 0;
-    public static final int UPDATE_FLAG_SET_VIBRATION = 1 << 0;
+    public static final int UPDATE_FLAG_SET_VIBRATION = 1;
     public static final int UPDATE_FLAG_SET_LIGHTSPHERE_COLOR = 1 << 1;
+    public static final int UPDATE_FLAG_SET_EXTENSION_DATA_V2 = 1 << 2;
 
     public int updateFlags;
     public int red, green, blue, motorValue;
+    public byte[] extData = new byte[40];
 
     @Override
     public void fromStream(REMoveStream s) throws REMoveException {
@@ -21,6 +23,7 @@ public class REMoveNetPacketToClientV1 implements IREMoveNetPacket {
         green = s.readByte();
         blue = s.readByte();
         motorValue = s.readByte();
+        s.readBytesInto(extData, 0, extData.length);
     }
 
     @Override
@@ -31,5 +34,6 @@ public class REMoveNetPacketToClientV1 implements IREMoveNetPacket {
         s.writeByte(green);
         s.writeByte(blue);
         s.writeByte(motorValue);
+        s.writeBytes(extData, 0, extData.length);
     }
 }
