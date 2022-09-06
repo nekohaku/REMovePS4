@@ -3,6 +3,7 @@
         {
             "name": "OOPS4",
             "includePath": [
+                "${env:OO_PS4_TOOLCHAIN}/include/c++/v1/**",
                 "${env:OO_PS4_TOOLCHAIN}/include/**",
                 "${workspaceFolder}/${workspaceFolderBasename}/**"
             ],
@@ -17,7 +18,8 @@
                 "__BSD_VISIBLE=1",
 
                 "RESTRICT=__restrict",
-                "_DEBUG"
+                "_DEBUG",
+                "BUILD_WITH_GOLDHEN_SUPPORT"
             ],
             "compilerPath": "D:\\SDK\\LLVM10\\bin\\clang++.exe",
             "cStandard": "c99",

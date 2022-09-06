@@ -86,6 +86,7 @@
         "net.h": "c",
         "user.h": "c",
         "errors.h": "c",
-        "sysmodule.h": "c"
+        "sysmodule.h": "c",
+        "move.h": "c"
     }
 }

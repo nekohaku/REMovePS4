@@ -1,7 +1,6 @@
-
-#pragma once
 #ifndef _REMOVE_CTX_H_
 #define _REMOVE_CTX_H_ 1
+#pragma once
 
 #include "scemove.h"
 #include "remove_module.h"
@@ -11,9 +10,10 @@ typedef struct IREMoveContextData IREMoveContextData;
 
 // public:
 typedef struct IREMoveContext IREMoveContext;
+typedef struct IREMoveContextVtbl IREMoveContextVtbl;
 
-struct IREMoveContext {
-    // functions: -- public interface
+struct IREMoveContextVtbl {
+    // virtual functions: -- public interface
     sceError(*Init)(IREMoveContext *self);
     sceError(*Term)(IREMoveContext *self);
     sceHandleOrError(*Open)(IREMoveContext *self, sceUserId userId, sceMoveDeviceType deviceType, sceInt32 iDeviceIndex);
@@ -26,11 +26,17 @@ struct IREMoveContext {
     sceError(*GetExtensionPortInfo)( /* -- DEPRECATED -- */ IREMoveContext *self, sceHandle hDeviceHandle, sceMoveExtensionPortInfo *pOutPortInfo);
     sceError(*ResetLightSphere)(IREMoveContext *self, sceHandle hDeviceHandle);
     sceError(*SetExtensionPortOutput)( /* -- DEPRECATED -- */ IREMoveContext *self, sceHandle hDeviceHandle, unsigned char baData[40]);
+};
+
+struct IREMoveContext {
+    // virtual function table: -- do not modify
+    IREMoveContextVtbl *v;
 
     // context data: -- do not use, private.
     IREMoveContextData *Data;
 };
 
+// do not modify, use IREMoveContext_CreateIfNullctx
 extern IREMoveContext *Context;
 
 #define NULLCTX ((IREMoveContext *)(0))

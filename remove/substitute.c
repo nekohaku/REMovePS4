@@ -97,3 +97,16 @@ int substitute_enable(substitute_hook_info* hook) {
 int substitute_unhook(substitute_hook_info* hook) {
     return substitute_statehook(hook, SUBSTITUTE_STATE_UNHOOK);
 }
+
+/* Call this only once. */
+int substitute_is_present() {
+    int fd;
+    
+    fd = sceKernelOpen("/dev/mira", 02, 0);
+    if (fd < 0) {
+        return 0;
+    }
+
+    sceKernelClose(fd);
+    return 1;
+}

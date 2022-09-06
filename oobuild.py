@@ -27,9 +27,10 @@ BUILD_FOLDER_NAME = "ps4"
 BUILD_FOLDER = os.path.join(ROOT_DIR, "build", BUILD_FOLDER_NAME)
 
 # Dependencies: libunwind is auto-merged into libc++ in nightly OO builds for simplicity
-LINK_WITH = "-lkernel -lc -lSceUserService -lSceNet -lSceSysmodule"
+LINK_WITH = "-lGoldHEN_Hook -lkernel -lc -lc++ -lSceUserService -lSceNet -lSceSysmodule"
 
 SRC_FOLDER = os.path.join(ROOT_DIR, "remove")
+GOLDHEN_PLUGIN_SDK = os.path.join(SRC_FOLDER, "goldhensdk")
 
 # name of the final output, must start with lib
 FINAL_NAME = "libREMove"
@@ -39,11 +40,15 @@ OELF_PATH = os.path.join(BUILD_FOLDER, FINAL_NAME + ".oelf")
 PRX_PATH = os.path.join(BUILD_FOLDER, FINAL_NAME + ".sprx")
 
 COMPILER_DEFINES =  " -DORBIS=1 -D__ORBIS__=1 -DPS4=1 -DOO=1 -D__PS4__=1 -DOOPS4=1 -D__OOPS4__=1 " + \
-                    " -D__BSD_VISIBLE=1 -D_BSD_SOURCE=1 "
+                    " -D__BSD_VISIBLE=1 -D_BSD_SOURCE=1 -DBUILD_WITH_GOLDHEN_SUPPORT "
 
 COMPILER_WFLAGS  =  " -Wpedantic "
 
-COMPILER_FFLAGS  =  " -fPIC -fvisibility=hidden -march=btver2 -O2 -std=gnu99 -c "
+COMPILER_FFLAGS  =  " -fPIC -fvisibility=hidden -march=btver2 -O2 -c "
+
+COMPILER_CFLAGS  =  " -std=c99 "
+
+COMPILER_PFLAGS  = f" -std=c++14 -isystem \"{OO_PS4_TOOLCHAIN}/include/c++/v1\" "
 
 COMPILER_IFLAGS  = f" -isysroot \"{OO_PS4_TOOLCHAIN}\" -isystem \"{OO_PS4_TOOLCHAIN}/include\" " + \
                    f" -I\"{SRC_FOLDER}\" "
@@ -54,17 +59,19 @@ COMPILER_FLAGS   = f" --target=x86_64-pc-freebsd12-elf -fexceptions -funwind-tab
 
 # link with PRX crtlib
 LINKER_FLAGS = f" -m elf_x86_64 -pie --script \"{OO_PS4_TOOLCHAIN}/link.x\" " + \
-               f" --eh-frame-hdr --verbose -L\"{OO_PS4_TOOLCHAIN}/lib\" {LINK_WITH} -o \"{ELF_PATH}\" "
+               f" --eh-frame-hdr --verbose -e _init -L\"{GOLDHEN_PLUGIN_SDK}\" -L\"{OO_PS4_TOOLCHAIN}/lib\" {LINK_WITH} -o \"{ELF_PATH}\" "
 
 C_COMPILER_EXE = os.path.join(LLVM_BIN_PATH, "clang")
+CPP_COMPILER_EXE = os.path.join(LLVM_BIN_PATH, "clang++")
 LINKER_EXE = os.path.join(LLVM_BIN_PATH, "ld.lld")
 TOOL_EXE = os.path.join(OO_PS4_TOOLCHAIN, "bin", "windows", "create-fself")
 
-# Taken from CMakeLists.txt and added sony stuff at the end
+# REMove source files:
 SOURCE_FILES = """
 remove/substitute.c
 remove/remove_ctx.c
 remove/remove_module.c
+remove/remove_goldhen_glue.cpp
 """
 
 # quoted .o paths
@@ -99,8 +106,15 @@ def run_compiler_at(srcfile: str, objfile: str, params: str) -> int:
     # wtf python?
     global OBJECTS
 
+    comp = C_COMPILER_EXE
+    if srcfile.endswith(".cpp") or srcfile.endswith(".cxx"):
+        params = COMPILER_PFLAGS + params
+        comp = CPP_COMPILER_EXE
+    else:
+        params = COMPILER_CFLAGS + params
+    
     runargs = f"{params} -o \"{objfile}\" \"{srcfile}\""
-    fullline = f"{C_COMPILER_EXE} {runargs}"
+    fullline = f"{comp} {runargs}"
 
     print(f"Invoking {fullline}")
     ec = os.system(fullline)

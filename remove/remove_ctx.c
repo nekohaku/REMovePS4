@@ -109,23 +109,27 @@ typedef enum REMoveNetUpdateFlagsV2 {
     UPDATE_FLAG_SET_VIBRATION = (1 << 0),
     // `motor` is to be read and applied
     UPDATE_FLAG_SET_LIGHTSPHERE_COLOR = (1 << 1),
+    // -- V2 context extension {
     // `extData` is to be read and applied
     UPDATE_FLAG_SET_EXTENSION_DATA_V2 = (1 << 2)
+    // -- V2 context extension }
 } REMoveNetUpdateFlagsV2;
 
 // this is the second and onward packet that is sent from the server to the client
 typedef struct REMOVECTX_PKT_ATTR REMoveNetPacketToClientV2 {
     int32_t sizeThis; // size of the whole packet, including this field.
     // which information to update?
-    int32_t updateFlagsV2;
+    int32_t updateFlagsV2; // cast to enum REMoveNetUpdateFlagsV2
     // if flag `UPDATE_FLAG_SET_LIGHTSPHERE_COLOR` is set: ignore otherwise
     uint8_t red;
     uint8_t green;
     uint8_t blue;
     // if flag `UPDATE_FLAG_SET_VIBRATION` is set: ignore otherwise
     uint8_t motor;
+    // -- V2 context extension {
     // if flag `UPDATE_FLAG_SET_EXTENSION_DATA` is set: ignore otherwise
-    unsigned char extData[40];
+    uint8_t extData[40];
+    // -- V2 context extension }
 } REMoveNetPacketToClientV2;
 
 // this is the only packet that is set from the client to the server (otherwise it aborts the socket)
@@ -447,15 +451,16 @@ int IREMoveContext_ServerEvent(IREMoveContext *self, int epollId, OrbisNetEpollE
             int sind = IREMoveContext_Socket2Index(self, sck);
             IREMoveContext_FreeSocket(self, sck);
             IREMoveContext_SetIndex(self, sind, -1);
+            return 1;
         }
+
+        nprintf("REMove: Connection from %s:%d\nSocket = %d", connfroms ? connfroms : "<unknown>", (int)sceNetHtons(addr.sin_port), sck);
     }
 
     return 1;
 }
 
 int IREMoveContext_ClientEvent(IREMoveContext *self, int epollId, OrbisNetEpollEvent *epollev) {
-    scePthreadMutexLock(&self->Data->serverMutex);
-    // critical section: {
     int r = 1, ok = 0;
     // events for the client socket:
 
@@ -504,14 +509,18 @@ int IREMoveContext_ClientEvent(IREMoveContext *self, int epollId, OrbisNetEpollE
             }
         }
     }
-    // }: critical section
-    scePthreadMutexUnlock(&self->Data->serverMutex);
     return r;
 }
 
 void *IREMoveContext_ServerThread(void *thread_arg) {
+    if (!thread_arg) {
+        /* should never happen, but still, just in case */
+        return (void *)0x1;
+    }
+
     IREMoveContext *self = (IREMoveContext *)thread_arg;
     OrbisNetEpollEvent events[32] = { { 0 } };
+    OrbisNetEpollEvent *ev = NULL;
     int nevents = 0, i = 0, runthr = 0;
 
     for (;;) {
@@ -522,13 +531,15 @@ void *IREMoveContext_ServerThread(void *thread_arg) {
         scePthreadMutexUnlock(&self->Data->serverMutex);
 
         if (!runthr) {
+            kprintf("[removethr]: Received stop flag %d\n", runthr);
             break;
         }
 
         nevents = ((int(*)(int eid, OrbisNetEpollEvent *events, int m, int t))&sceNetEpollWait)
-            (self->Data->serverEpoll, events, sizeof(events) / sizeof(events[0]), 15 * 1000 * 1000);
+            (self->Data->serverEpoll, events, sizeof(events) / sizeof(events[0]), -1 /* block indefinitely */);
+        
         if (nevents < 0) {
-            kprintf("[removethr]: sceNetEpollWait failed, 0x%X %d", nevents, orbis_net_errno);
+            kprintf("[removethr]: sceNetEpollWait failed, 0x%X %d", nevents, orbis_net_errno); /* uh oh ... */
             break;
         }
         
@@ -538,8 +549,10 @@ void *IREMoveContext_ServerThread(void *thread_arg) {
         }
 
         /* perform epoll events... */
+        scePthreadMutexLock(&self->Data->serverMutex);
+        // critical section: {
         for (i = 0; i < nevents; ++i) {
-            OrbisNetEpollEvent *ev = &events[i];
+            ev = &events[i];
             if (ev->data.u32 & 1 /* epoll server socket flag */) {
                 if (!IREMoveContext_ServerEvent(self, self->Data->serverEpoll, ev)) {
                     break;
@@ -551,6 +564,8 @@ void *IREMoveContext_ServerThread(void *thread_arg) {
                 }
             }
         }
+        // }: critical section
+        scePthreadMutexUnlock(&self->Data->serverMutex);
     }
 
     // nothing...
@@ -635,6 +650,13 @@ sceError IREMoveContext_Init(IREMoveContext *self) {
         return SCE_MOVE_ERROR_FATAL;
     }
     kprintf("[removectx]: Context created OK, awaiting for clients now...\n");
+    nprintf("REMove: Protocol=V%d PRX=%s %s %s\nListening now on port %d",
+        REMOVECTX_SERVER_VERSION,
+        __DATE__,
+        __TIME__,
+        have_mira ? "Mira (Substitute)" : "GoldHEN (Plugin SDK)",
+        (int)sceNetHtons(sockin.sin_port)
+    );
     return SCE_OK;
 }
 
@@ -651,19 +673,25 @@ sceError IREMoveContext_Term(IREMoveContext *self) {
         kprintf("[removectx]: Joining thread...\n");
         scePthreadJoin(self->Data->serverThread, 0);
         kprintf("[removectx]: Thread is fully stopped\n");
+        scePthreadMutexDestroy(&self->Data->serverMutex);
+        kprintf("[removectx]: Mutex is freed\n");
         self->Data->serverThread = 0;
     }
 
     // this array contains server socket at [0] and client sockets at [1...]
     // it's okay if we try to destroy the same socket id twice...
     for (int i = 0; i < sizeof(self->Data->epollSockets) / sizeof(self->Data->epollSockets[0]); ++i) {
-        IREMoveContext_FreeSocket(self, self->Data->epollSockets[i]);
-        self->Data->epollSockets[i] = -1;
+        if (self->Data->epollSockets[i] >= 0) {
+            IREMoveContext_FreeSocket(self, self->Data->epollSockets[i]);
+            self->Data->epollSockets[i] = -1;
+        }
     }
 
     // the poll thingy has to be gone!!
-    ((int(*)(int))&sceNetEpollDestroy)(self->Data->serverEpoll);
-    self->Data->serverEpoll = -1;
+    if (self->Data->serverEpoll >= 0) {
+        ((int(*)(int))&sceNetEpollDestroy)(self->Data->serverEpoll);
+        self->Data->serverEpoll = -1;
+    }
 
     // reset all public API data as well
     memset(self->Data->clientData, 0, sizeof(self->Data->clientData));
@@ -736,7 +764,6 @@ sceHandleOrError IREMoveContext_Open(IREMoveContext *self, sceUserId userId, sce
     }
     // }: critical section
     scePthreadMutexUnlock(&self->Data->serverMutex);
-
     return porthandle;
 }
 
@@ -1018,8 +1045,8 @@ static IREMoveContextData __ctx_data__ = {
     .portData = { { 0 } }
 };
 
-static IREMoveContext __ctx__ = {
-    // functions: --
+static IREMoveContextVtbl __ctx_vtbl__ = {
+    // public interface
     .Init = &IREMoveContext_Init,
     .Term = &IREMoveContext_Term,
     .Open = &IREMoveContext_Open,
@@ -1031,7 +1058,12 @@ static IREMoveContext __ctx__ = {
     .GetDeviceInfo = &IREMoveContext_GetDeviceInfo,
     .GetExtensionPortInfo = &IREMoveContext_GetExtensionPortInfo,
     .ResetLightSphere = &IREMoveContext_ResetLightSphere,
-    .SetExtensionPortOutput = &IREMoveContext_SetExtensionPortOutput,
+    .SetExtensionPortOutput = &IREMoveContext_SetExtensionPortOutput
+};
+
+static IREMoveContext __ctx__ = {
+    // functions: --
+    .v = &__ctx_vtbl__,
     // context data: --
     .Data = &__ctx_data__
 };

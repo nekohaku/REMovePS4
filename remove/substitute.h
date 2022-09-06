@@ -67,5 +67,6 @@ int substitute_statehook(substitute_hook_info* hook, substitute_state state);
 int substitute_disable(substitute_hook_info* hook);
 int substitute_enable(substitute_hook_info* hook);
 int substitute_unhook(substitute_hook_info* hook);
+int substitute_is_present();
 
 #endif
