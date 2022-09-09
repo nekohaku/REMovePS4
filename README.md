@@ -32,6 +32,6 @@ UPD: Now explained in `PROTOCOL.md`!
 
 # Credits
 
-- Zhilemann, BlackDoomer, `[?] aka Der Leberkässemmel Fan` - answering my stupid questions about physics.
+- zhilemann, BlackDoomer, `[?] aka Der Leberkässemmel Fan` - answering my stupid questions about physics.
 - sleirsgoevy - answering my stupid questions about PS4.
 - Sony - being a pain in the ass, as usual. (we `<3` sony)
