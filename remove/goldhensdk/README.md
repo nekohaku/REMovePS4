@@ -1,22 +1,31 @@
-# GoldHEN Plugin SDK Files
+# GoldHEN Plugin SDK - a prx hook/patch sdk for Orbis OS
 
-All files in this folder were provided by SiSTRo, the creator and maintainer of GoldHEN.
+This is the GoldHEN Plugin SDK repository.
 
-He permitted the REMove project to use these files so function hooks work in GoldHEN as well, not just Mira.
+It requires OpenOrbis PS4 Toolchain and LLVM to be installed.
 
-This requires very latest GoldHEN to be running.
+## Including the SDK as source
 
-If you're going to use these files in your project, I'd ask SiSTRo first.
+It's better if you copy the SDK source files into your project and build the SDK from source *with* your project,
+because there may be some compiler or OpenOrbis Toolchain bugfixes which would require rebuilding the GoldHEN SDK.
 
-I still do not know why he didn't go the "pseudo-file" way like Mira did with it's `/dev/mira` ioctl-thing and made a static lib instead :/
+Just build all files from `source/` as C source code, and include stuff from `include/`.
 
-It's also in C++ and was most likely compiled with OpenOrbis, so it relies on a mostly-specific OpenOrbis Toolchain version.
+## Including the SDK as a static library
 
-The toolchain is evolving constantly, a custom LLVM for OpenOrbis is on it's way, which will most likely break things.
+If you are sure you won't be rebuilding the GoldHEN SDK, then you can include stuff from `include/`,
+run `build_static.bat` to build a static library `libGoldHEN_Hook.a` and then use it in your project for the implementation of the headers.
 
-Since my code *is* portable (doesn't even require malloc! just a proper linker to import SceNet/SceUserService/libkernel!),
+## Credits
 
-I had to make an extern "C" glue which makes the thing even worse.
+- OSM <https://github.com/OSM-Made>
 
+- jocover <https://github.com/jocover>
+
+- bucanero <https://github.com/bucanero>
+
+- OpenOrbis Team <https://github.com/OpenOrbis>
+
+- SiSTRo <https://github.com/SiSTR0>
 
 

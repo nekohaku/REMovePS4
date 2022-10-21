@@ -5,7 +5,7 @@ This is basically PS Move for the poor.
 # How to install?
 
 - For Mira CFW: Copy `libREMove.sprx` to `/data/mira/substitute/CUSAXXXXX/`, where `CUSAXXXXX` is the game you wish to patch.
-- For GoldHEN (TODO!!!! NOT FINISHED!!!!): Rename `libREMove.sprx` to `fps.prx` and copy to `/data/GoldHEN/`.
+- For GoldHEN 2.2.5 and newer: Rename `libREMove.sprx` to `test.prx` and copy to `/data/GoldHEN/plugins`.
 - Install the APK on your device.
 - Open the app, go to Settings and set your Console IP, usually you do not need to touch the port.
 - Run the game you wanted to patch, press "CONNECT" in the app, select your user, enjoy!

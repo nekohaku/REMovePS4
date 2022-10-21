@@ -267,10 +267,12 @@ public class MainActivity extends AppCompatActivity implements IREMoveApplicatio
                 getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
             if (vibman != null) {
                 vib = vibman.getDefaultVibrator();
+                print("Using new vibration API");
             }
         }
         else {
             vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            print("Using old vibration API");
         }
 
         btnCross = findViewById(R.id.button_cross);

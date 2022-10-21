@@ -8,10 +8,10 @@ from pathlib import Path
 
 print("> Building libREMove for PS4 via OO")
 
-LLVM_BIN_PATH = os.environ.get("OPENALPS4_LLVM_BIN_PATH")
+LLVM_BIN_PATH = os.environ.get("OO_LLVM_BIN_PATH")
 
 if LLVM_BIN_PATH is None:
-    LLVM_BIN_PATH = "D:\\SDK\\LLVM10\\bin"
+    LLVM_BIN_PATH = "D:/SDK/LLVM10/bin"
 
 # only works with the latest nightly release of the OpenOrbis PS4 Toolchain
 OO_PS4_TOOLCHAIN = os.environ.get("OO_PS4_TOOLCHAIN")
@@ -27,10 +27,10 @@ BUILD_FOLDER_NAME = "ps4"
 BUILD_FOLDER = os.path.join(ROOT_DIR, "build", BUILD_FOLDER_NAME)
 
 # Dependencies: libunwind is auto-merged into libc++ in nightly OO builds for simplicity
-LINK_WITH = "-lGoldHEN_Hook -lkernel -lc -lc++ -lSceUserService -lSceNet -lSceSysmodule"
+LINK_WITH = "-lkernel -lc -lSceUserService -lSceNet"
 
 SRC_FOLDER = os.path.join(ROOT_DIR, "remove")
-GOLDHEN_PLUGIN_SDK = os.path.join(SRC_FOLDER, "goldhensdk")
+GOLDHEN_PLUGIN_SDK = os.path.join(SRC_FOLDER, "goldhensdk", "include")
 
 # name of the final output, must start with lib
 FINAL_NAME = "libREMove"
@@ -44,25 +44,22 @@ COMPILER_DEFINES =  " -DORBIS=1 -D__ORBIS__=1 -DPS4=1 -DOO=1 -D__PS4__=1 -DOOPS4
 
 COMPILER_WFLAGS  =  " -Wpedantic "
 
-COMPILER_FFLAGS  =  " -fPIC -fvisibility=hidden -march=btver2 -O2 -c "
+COMPILER_FFLAGS  =  " -fPIC -fvisibility=hidden -march=btver2 -mtune=btver2 -O2 -c "
 
-COMPILER_CFLAGS  =  " -std=c99 "
-
-COMPILER_PFLAGS  = f" -std=c++14 -isystem \"{OO_PS4_TOOLCHAIN}/include/c++/v1\" "
+COMPILER_CFLAGS  =  " -std=c11 "
 
 COMPILER_IFLAGS  = f" -isysroot \"{OO_PS4_TOOLCHAIN}\" -isystem \"{OO_PS4_TOOLCHAIN}/include\" " + \
-                   f" -I\"{SRC_FOLDER}\" "
+                   f" -I\"{SRC_FOLDER}\" -I\"{GOLDHEN_PLUGIN_SDK}\" "
 
 # use freebsd12 target, define some generic ps4 defines, force exceptions to ON since we have to do that for now
 COMPILER_FLAGS   = f" --target=x86_64-pc-freebsd12-elf -fexceptions -funwind-tables -fuse-init-array " + \
                    f" {COMPILER_WFLAGS} {COMPILER_FFLAGS} {COMPILER_IFLAGS} {COMPILER_DEFINES} "
 
 # link with PRX crtlib
-LINKER_FLAGS = f" -m elf_x86_64 -pie --script \"{OO_PS4_TOOLCHAIN}/link.x\" " + \
-               f" --eh-frame-hdr --verbose -e _init -L\"{GOLDHEN_PLUGIN_SDK}\" -L\"{OO_PS4_TOOLCHAIN}/lib\" {LINK_WITH} -o \"{ELF_PATH}\" "
+LINKER_FLAGS = f" -m elf_x86_64 --script \"{OO_PS4_TOOLCHAIN}/link.x\" " + \
+               f" --eh-frame-hdr --verbose -pie -e _init -L\"{OO_PS4_TOOLCHAIN}/lib\" {LINK_WITH} -o \"{ELF_PATH}\" "
 
 C_COMPILER_EXE = os.path.join(LLVM_BIN_PATH, "clang")
-CPP_COMPILER_EXE = os.path.join(LLVM_BIN_PATH, "clang++")
 LINKER_EXE = os.path.join(LLVM_BIN_PATH, "ld.lld")
 TOOL_EXE = os.path.join(OO_PS4_TOOLCHAIN, "bin", "windows", "create-fself")
 
@@ -71,7 +68,13 @@ SOURCE_FILES = """
 remove/substitute.c
 remove/remove_ctx.c
 remove/remove_module.c
-remove/remove_goldhen_glue.cpp
+
+remove/goldhensdk/source/GoldHEN.c
+remove/goldhensdk/source/Utilities.c
+remove/goldhensdk/source/Syscall.c
+remove/goldhensdk/source/HDE64.c
+remove/goldhensdk/source/Patcher.c
+remove/goldhensdk/source/Detour.c
 """
 
 # quoted .o paths
@@ -107,11 +110,7 @@ def run_compiler_at(srcfile: str, objfile: str, params: str) -> int:
     global OBJECTS
 
     comp = C_COMPILER_EXE
-    if srcfile.endswith(".cpp") or srcfile.endswith(".cxx"):
-        params = COMPILER_PFLAGS + params
-        comp = CPP_COMPILER_EXE
-    else:
-        params = COMPILER_CFLAGS + params
+    params = COMPILER_CFLAGS + params
     
     runargs = f"{params} -o \"{objfile}\" \"{srcfile}\""
     fullline = f"{comp} {runargs}"

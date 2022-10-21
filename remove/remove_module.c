@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/UserService.h>
@@ -9,9 +10,14 @@
 #include "substitute.h"
 #include "remove_module.h"
 #include "remove_ctx.h"
-#include "remove_goldhen_glue.h"
+#include "goldhensdk/include/Detour.h"
 
 // -- REMove Main Module -- //
+
+void logDlsym(int prxId, const char *name, void **outResult) {
+    int r = sceKernelDlsym(prxId, name, outResult);
+    kprintf("[remove]: sceKernelDlsym(%d, \"%s\", %p); => %d - %p\n", prxId, name, (void*)outResult, r, *outResult);
+}
 
 /* extern hook */
 #define ehook(_OrigFunc) extern substitute_hook_info _OrigFunc##HookInfo
@@ -28,21 +34,17 @@
     ) : /* already hooked, return success */ (0) )
 // goldhen stuff
 #ifdef BUILD_WITH_GOLDHEN_SUPPORT
-#define gehook(_OrigFunc) extern void *_OrigFunc##GoldHEN_Addr; extern PRG_Detour _OrigFunc##GoldHEN_HookInfo
-#define gdhook(_OrigFunc) void *_OrigFunc##GoldHEN_Addr = 0; PRG_Detour _OrigFunc##GoldHEN_HookInfo = 0
+#define gehook(_OrigFunc) extern Detour _OrigFunc##GoldHEN_Hook; extern void *_OrigFunc##GoldHEN_Addr
+#define gdhook(_OrigFunc) Detour _OrigFunc##GoldHEN_Hook = { DetourMode_x64 }; void *_OrigFunc##GoldHEN_Addr = 0
 #define gihook(_OrigFunc) ( \
-    (!(_OrigFunc##GoldHEN_HookInfo)) ? \
+    (!(_OrigFunc##GoldHEN_Addr)) ? \
         ( \
-            (_OrigFunc##GoldHEN_HookInfo) = RG_Detour_new(), \
-            sceKernelDlsym(psmove_prx_id, #_OrigFunc, &(_OrigFunc##GoldHEN_Addr)), \
-            RG_Detour_DetourFunction( \
-                (_OrigFunc##GoldHEN_HookInfo), \
-                (void *)(_OrigFunc##GoldHEN_Addr), \
-                (void *)(_OrigFunc##Impl) \
-            ) \
+            Detour_Construct((&(_OrigFunc##GoldHEN_Hook)), DetourMode_x64), \
+            logDlsym(psmove_prx_id, #_OrigFunc, (&(_OrigFunc##GoldHEN_Addr))), \
+            Detour_DetourFunction((&(_OrigFunc##GoldHEN_Hook)), (uint64_t)(_OrigFunc##GoldHEN_Addr), (void *)&(_OrigFunc##Impl)), \
+            0 \
         ) \
-    : \
-    /* already hooked, return 'already' value */ (void*)(0x1) \
+    : /* already hooked, return success */ (0) \
     )
 
 gdhook(sceMoveInit);
@@ -214,11 +216,20 @@ sceError sceMoveSetExtensionPortOutputImpl( /* -- DEPRECATED -- */ sceHandle hDe
     return Context->v->SetExtensionPortOutput(Context, hDeviceHandle, baData);
 }
 
+
 void REMove_module_start() {
+    char path[260 + 1] = { '\0' };
     have_mira = substitute_is_present();
-    psmove_prx_id = sceKernelLoadStartModule("libSceMove.sprx", 0, 0, 0, 0, 0);
+    strcat(path, "/");
+    strcat(path, sceKernelGetFsSandboxRandomWord());
+    strcat(path, "/common/lib/libSceMove.sprx");
+    psmove_prx_id = sceKernelLoadStartModule(path, 0, 0, 0, 0, 0);
+    kprintf("psmove prx id = %d\n", psmove_prx_id);
     if (psmove_prx_id >= 0) {
         REMove_InitHooks();
+    }
+    else {
+        nprintf("REMove: libSceMove load fail 0x%X", psmove_prx_id);
     }
 }
 
@@ -237,17 +248,8 @@ void REMove_module_stop() {
 static int is_initialized = 0;
 static int is_finalized = 0;
 #define prxex __attribute__((visibility("default")))
+prxex void *__dso_handle = &__dso_handle;
 
-#ifndef BUILD_WITH_GOLDHEN_SUPPORT
-
-extern void(*__preinit_array_start[])(void);
-extern void(*__preinit_array_end[])(void);
-extern void(*__init_array_start[])(void);
-extern void(*__init_array_end[])(void);
-extern void(*__fini_array_start[])(void);
-extern void(*__fini_array_end[])(void);
-
-// sce_module_param
 __asm__(
 ".intel_syntax noprefix \n"
 ".align 0x8 \n"
@@ -258,71 +260,15 @@ __asm__(
     // magic
 "	.quad   0x13C13F4BF \n"
     // SDK version
-"	.quad 	0x4508101 \n"
-".att_syntax prefix \n"
-);
-
-// data globals
-__asm__(
-".intel_syntax noprefix \n"
-".align 0x8 \n"
+"	.quad 	0x4508001 \n"
 ".data \n"
 "_sceLibc: \n"
 "	.quad 	0 \n"
 ".att_syntax prefix \n"
 );
 
-prxex void _init() {
-    if (!is_initialized) {
-        is_initialized = 1;
-
-        /* usually preinit start==end so it's not used, but who knows? */
-        for(void(**__i)(void) = __preinit_array_start; __i != __preinit_array_end; __i++) {
-            __i[0]();
-        }
-
-        for(void(**__i)(void) = __init_array_start; __i != __init_array_end; __i++) {
-            __i[0]();
-        }
-
-        /* call your entry point here: */
-        REMove_module_start();
-    }
-}
-
-prxex void _fini() {
-    if (!is_finalized) {
-        is_finalized = 1;
-
-        for(void(**__i)(void) = __fini_array_start; __i != __fini_array_end; __i++) {
-            __i[0]();
-        }
-
-        /* call your quit point (LOL) here: */
-        REMove_module_stop();
-    }
-}
-
-prxex int module_start(unsigned long long argl, const void *argp) {
-    _init();
-    return 0;
-}
-
-prxex int module_stop(unsigned long long argl, const void *argp) {
-    _fini();
-    return 0;
-}
-
-#else /* BUILD_WITH_GOLDHEN_SUPPORT: */
-
-/* special GoldHEN plugin CRT */
-prxex void _init(); /* provided by crtprx.o */
-prxex void _fini(); /* provided by crtprx.o */
-/* for some bizzare reason if I don't do this, clang won't link GoldHEN's `crtprx.o` */
-prxex void *_init_addr_dummy = (void *)&_init;
-prxex void *_fini_addr_dummy = (void *)&_fini;
-
-prxex int module_start(unsigned long long argl, const void *argp) {
+/* force visibility to default so it always gets exported */
+prxex int module_start(size_t argc, const void *args) {
     if (!is_initialized) {
         is_initialized = 1;
         REMove_module_start();
@@ -331,7 +277,7 @@ prxex int module_start(unsigned long long argl, const void *argp) {
     return 0;
 }
 
-prxex int module_stop(unsigned long long argl, const void *argp) {
+prxex int module_stop(size_t argc, const void *args) {
     if (!is_finalized) {
         is_finalized = 1;
         REMove_module_stop();
@@ -340,14 +286,20 @@ prxex int module_stop(unsigned long long argl, const void *argp) {
     return 0;
 }
 
-#endif
+prxex int _init() {
+    return module_start(0, 0);
+}
+
+prxex int _fini() {
+    return module_stop(0, 0);
+}
 
 #pragma endregion /* end of CRT */
 
 int kprintf(const char *fmt, ...) {
     va_list va_l;
     int wrote = 0;
-    char buff[4096] = { '\0' };
+    char buff[0x100] = { '\0' };
 
     va_start(va_l, fmt);
     wrote = vsnprintf(buff, sizeof(buff), fmt, va_l);
@@ -357,17 +309,10 @@ int kprintf(const char *fmt, ...) {
     return wrote;
 }
 
-#ifndef my_strncpy
-#define my_strncpy(_Dest, _Src, _Len) \
-    for (unsigned long long _Index = 0; _Index < _Len; ++_Index) \
-        if ('\0' == _Src[_Index]) { _Dest[_Index] = '\0'; break; } \
-        else _Dest[_Index] = _Src[_Index];
-#endif
-
 int nprintf(const char *fmt, ...) {
     va_list va_l;
     int wrote = 0;
-    char buff[512] = { '\0' };
+    char buff[0x100] = { '\0' };
     OrbisNotificationRequest req = { 0 };
     char icon[] = "cxml://psnotification/tex_device_move";
 
@@ -378,11 +323,10 @@ int nprintf(const char *fmt, ...) {
     req.type = NotificationRequest;
     req.useIconImageUri = 1;
     req.targetId = -1;
-    my_strncpy(req.message, buff, sizeof(req.message));
-    my_strncpy(req.iconUri, icon, sizeof(req.iconUri));
+    snprintf(req.message, sizeof(req.message), "%s", buff);
+    snprintf(req.iconUri, sizeof(req.iconUri), "%s", icon);
 
     sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
     return wrote;
 }
 
-#undef my_strncpy

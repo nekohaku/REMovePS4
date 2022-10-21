@@ -51,7 +51,9 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
             REMoveNetPacketHelloV2 hello = new REMoveNetPacketHelloV2();
             int got;
             REMoveApplicationData appData;
-            //long startTime;
+            long startTime;
+
+            log("Entering thread loop...");
 
             while (running.get()) {
                 // initialize the socket:
@@ -95,6 +97,7 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
 
                         // still negative? cancelled, kill us
                         if (myuserind < 0) {
+                            log("User selection cancelled");
                             break;
                         }
                         else {
@@ -113,7 +116,7 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                 }
 
                 // main loop...
-                //startTime = System.nanoTime();
+                startTime = System.nanoTime();
                 if (app != null) {
                     appData = app.onProvideData();
                     if (appData != null) {
@@ -138,37 +141,37 @@ public class REMoveClient implements Runnable, IREMoveUserPickerCallback {
                 );
 
                 // obtain any update frames from the server:
-                got = sckIn.read(buff);
-                if (got != REMoveNetPacketToClientV2.EXPECTED_SIZEOF) {
-                    throw new REMoveSizeOfException(
-                        REMoveNetPacketToClientV2.EXPECTED_SIZEOF,
-                        got
-                    );
-                }
-                buffstream.rewind();
-                toUs.fromStream(buffstream);
-
-                if (app != null) {
-                    if ((toUs.updateFlags
-                        & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_LIGHTSPHERE_COLOR) != 0) {
-                        // we have color update data, send that
-                        app.onColorUpdate(toUs.red, toUs.green, toUs.blue);
+                //if (sckIn.available() >= REMoveNetPacketToClientV2.EXPECTED_SIZEOF) {
+                    got = sckIn.read(buff, 0, REMoveNetPacketToClientV2.EXPECTED_SIZEOF);
+                    if (got != REMoveNetPacketToClientV2.EXPECTED_SIZEOF) {
+                        throw new REMoveSizeOfException(
+                            REMoveNetPacketToClientV2.EXPECTED_SIZEOF,
+                            got
+                        );
                     }
+                    buffstream.rewind();
+                    toUs.fromStream(buffstream);
 
-                    if ((toUs.updateFlags
-                        & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_VIBRATION) != 0) {
-                        // we have vibration data, send that
-                        app.onMotorUpdate(toUs.motorValue);
+                    if (app != null) {
+                        if ((toUs.updateFlags
+                            & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_LIGHTSPHERE_COLOR) != 0) {
+                            // we have color update data, send that
+                            app.onColorUpdate(toUs.red, toUs.green, toUs.blue);
+                        }
+
+                        if ((toUs.updateFlags
+                            & REMoveNetPacketToClientV2.UPDATE_FLAG_SET_VIBRATION) != 0) {
+                            // we have vibration data, send that
+                            app.onMotorUpdate(toUs.motorValue);
+                        }
                     }
-                }
+                //}
 
-                /*
                 long estimatedTime = System.nanoTime() - startTime;
 
-                if ((System.currentTimeMillis() % 10000) < 10) {
-                    log("Estimated time = " + (((double) estimatedTime) / 1000000) + "ms");
+                if ((System.currentTimeMillis() % 10000) < 100) {
+                    log("Estimated time = " + (((double) estimatedTime) / 1000000.0) + "ms");
                 }
-                 */
             }
 
             log("The thread is requesting a close gracefully...");

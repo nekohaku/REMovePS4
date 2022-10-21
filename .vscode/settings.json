@@ -87,6 +87,9 @@
         "user.h": "c",
         "errors.h": "c",
         "sysmodule.h": "c",
-        "move.h": "c"
+        "move.h": "c",
+        "common.h": "c",
+        "utilities.h": "c",
+        "strings.h": "c"
     }
 }
